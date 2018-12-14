@@ -38,6 +38,12 @@ export default {
     rewind: false,
 
     /**
+     * if slider is on the first slide, with prev click the slider goes to the last slide.
+     * (do not combine with infinite)
+     */
+    rewindPrev: false,
+
+    /**
      * number of visible slides or false
      * use infinite or rewind, not both
      * @infinite {number}
@@ -85,7 +91,7 @@ export default {
      * enables mouse events for swiping on desktop devices
      * @enableMouseEvents {boolean}
      */
-    enableMouseEvents: false,
+    //enableMouseEvents: false, // unused
 
     /**
      * window instance

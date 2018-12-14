@@ -1,4 +1,7 @@
+/* eslint-disable */
 /* globals jQuery */
+
+// XXX: could also remove all rewind code & slides to scroll code if it's never used..
 
 import detectPrefixes from './utils/detect-prefixes.js';
 import supportsPassive from './utils/detect-supportsPassive';
@@ -12,6 +15,8 @@ export function lory (slider, opts) {
     let slidesWidth;
     let frameWidth;
     let slides;
+    let slidesFitInFrame;
+    let slideWidths;
 
     /**
      * slider DOM elements
@@ -20,8 +25,12 @@ export function lory (slider, opts) {
     let slideContainer;
     let prevCtrl;
     let nextCtrl;
+
     let prefixes;
     let transitionEndCallback;
+    let disabledClass = 'disabled';
+    let morePrev;
+    let moreNext;
 
     let index   = 0;
     let options = {};
@@ -76,8 +85,6 @@ export function lory (slider, opts) {
                 slideContainer.insertBefore(cloned, slideContainer.firstChild);
             });
 
-        slideContainer.addEventListener(prefixes.transitionEnd, onTransitionEnd);
-
         return slice.call(slideContainer.children);
     }
 
@@ -106,11 +113,84 @@ export function lory (slider, opts) {
         }
     }
 
+    function margin_size(margin) {
+        // only works on pixel (px) values
+        return /px$/.test(margin) ? parseFloat(margin) : 0;
+    }
+
     /**
-     * returns an element's width
+     * returns an element's width (including margins)
      */
     function elementWidth (element) {
-        return element.getBoundingClientRect().width || element.offsetWidth;
+        let width = element.getBoundingClientRect().width || element.offsetWidth,
+            style = getComputedStyle(element);
+
+        return width + margin_size(style.marginLeft) + margin_size(style.marginRight);
+    }
+
+    function getMaxOffset () {
+        return Math.round(slidesWidth - frameWidth);
+    }
+
+    function getCustomDistance (direction) {
+        // intelligently slide to show whatever is slightly obscured + other slides in that direction
+        // w/ a margin to prevent the prev/next controls from getting in the way too much
+        //
+        // assumes nav-links not shown (b/c it doesn't set the index properly but probably fixable)
+        // and untested w/ infinite or rewind options
+
+        let distance = 0,
+            ctrl_margin = 60,
+            obscured_width = 0;
+
+        // have to take into account if a previous transition is still in progress
+        let transitionRemaining = Math.abs(position.x) - Math.abs(slideContainer.getBoundingClientRect().left);
+
+        if (!direction) {
+            // previous
+            let leftmost_obscured,
+                reversedSlides = slides.slice(); // shallow copy
+
+            reversedSlides.reverse();
+
+            reversedSlides.forEach(slide => {
+                if (!leftmost_obscured) {
+                    let r = slide.getBoundingClientRect();
+
+                    if (r.left - transitionRemaining < 0) {
+                        leftmost_obscured = slide;
+                        distance = frameWidth - (r.right - transitionRemaining);
+                        obscured_width = r.width;
+                    }
+                }
+            });
+        } else {
+            let rightmost_obscured;
+
+            slides.forEach(slide => {
+                if (!rightmost_obscured) {
+                    let r = slide.getBoundingClientRect();
+
+                    if (r.right - transitionRemaining > frameWidth) {
+                        rightmost_obscured = slide;
+                        distance = (r.left - transitionRemaining);
+                        obscured_width = r.width;
+                    }
+                }
+            });
+        }
+        if (distance !== 0) {
+            if (frameWidth - obscured_width <= ctrl_margin) {
+                // almost as wide as the frame so moving the full ctrl_margin wouldn't work
+                // instead, just center the obscured slide
+                distance -= (frameWidth - obscured_width) / 2;
+            } else {
+                // extra margin so that prev/next controls don't obsure too much
+                // (should probably have this be a options setting)
+                distance -= ctrl_margin;
+            }
+        }
+        return Math.round(distance);
     }
 
     /**
@@ -122,6 +202,7 @@ export function lory (slider, opts) {
      * @direction  {boolean}
      */
     function slide (nextIndex, direction) {
+
         const {
             slideSpeed,
             slidesToScroll,
@@ -130,32 +211,24 @@ export function lory (slider, opts) {
             rewindPrev,
             rewindSpeed,
             ease,
-            classNameActiveSlide,
-            classNameDisabledNextCtrl = 'disabled',
-            classNameDisabledPrevCtrl = 'disabled'
+            classNameActiveSlide
         } = options;
 
         let duration = slideSpeed;
 
         const nextSlide = direction ? index + 1 : index - 1;
-        const maxOffset = Math.round(slidesWidth - frameWidth);
+        const maxOffset = getMaxOffset();
 
-        dispatchSliderEvent('before', 'slide', {
-            index,
-            nextSlide
-        });
-
-        /**
-         * Reset control classes
-         */
-        if (prevCtrl) {
-            prevCtrl.classList.remove(classNameDisabledPrevCtrl);
-        }
-        if (nextCtrl) {
-            nextCtrl.classList.remove(classNameDisabledNextCtrl);
+        if (maxOffset <= 0) {
+            // no sliding should be done b/c the slides are fully visible
+            return;
         }
 
-        if (typeof nextIndex !== 'number') {
+        // nextIndex is false for prev() and next()
+
+        let toIndex = typeof nextIndex === 'number';
+
+        if (!toIndex) {
             if (direction) {
               if (infinite && index + (infinite * 2) !== slides.length) {
                   nextIndex = index + (infinite - index % infinite);
@@ -182,13 +255,44 @@ export function lory (slider, opts) {
             duration = rewindSpeed;
         }
 
-        let nextOffset = Math.min(Math.max(slides[nextIndex].offsetLeft * -1, maxOffset * -1), 0);
+        let customNextOffset;
+
+        if (toIndex) {
+            // use the default calculation
+            customNextOffset = slides[nextIndex].offsetLeft * -1;
+        } else {
+            let distance;
+
+            if (slidesFitInFrame || infinite || rewind) { // getCustomDistance untested w/ infinite or rewind
+                distance = frameWidth;
+            } else {
+                distance = getCustomDistance(direction);
+            }
+
+            if (direction) {
+                // next
+                distance *= -1;
+            }
+            customNextOffset = position.x + distance;
+        }
+
+        let nextOffset = Math.min(
+            Math.max(
+                customNextOffset,
+                maxOffset * -1
+            ),
+        0);
 
         if (rewind && Math.abs(position.x) === maxOffset && direction) {
             nextOffset = 0;
             nextIndex = 0;
             duration = rewindSpeed;
         }
+
+        dispatchSliderEvent('before', 'slide', {
+            index,
+            nextSlide
+        });
 
         /**
          * translate to the nextOffset by a defined duration and ease function
@@ -220,6 +324,7 @@ export function lory (slider, opts) {
 
             position.x = slides[index].offsetLeft * -1;
 
+            // this immediately goes to a slide w/o any animation
             transitionEndCallback = function () {
                 translate(slides[index].offsetLeft * -1, 0, undefined);
             };
@@ -229,21 +334,57 @@ export function lory (slider, opts) {
             setActiveElement(slice.call(slides), index);
         }
 
-        /**
-         * update classes for next and prev arrows
-         * based on user settings
-         */
-        if (prevCtrl && !infinite && !rewindPrev && nextIndex === 0) {
-            prevCtrl.classList.add(classNameDisabledPrevCtrl);
-        }
-
-        if (nextCtrl && !infinite && !rewind && ((nextIndex + 1) === slides.length)) {
-            nextCtrl.classList.add(classNameDisabledNextCtrl);
-        }
+        updateCtrls(nextIndex, nextOffset);
 
         dispatchSliderEvent('after', 'slide', {
             currentSlide: index
         });
+    }
+
+    function updateCtrls (index, offset) {
+
+        if (options.infinite) {
+            // never need to disable the controls
+            return;
+        }
+
+        const {
+            rewind,
+            rewindPrev,
+        } = options;
+
+        let max_offset = getMaxOffset(),
+            actual_offset = Math.round(offset || 0);
+
+        // untested w/ rewind or rewindPrev..
+        morePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
+        moreNext = (!rewind && (
+            (index === slides.length - 1) ||
+            (max_offset <= -1 * actual_offset) || // at or over the max offset so the last slide is fully visible
+            (max_offset <= 0) // all the slides are visible so no reason to have a next control
+        ));
+
+        /**
+         * Reset control classes
+         */
+        if (prevCtrl) {
+            prevCtrl.classList.remove(disabledClass);
+        }
+        if (nextCtrl) {
+            nextCtrl.classList.remove(disabledClass);
+        }
+
+        /**
+         * update classes for next and prev arrows
+         * based on user settings
+         */
+        if (prevCtrl && morePrev) { // index === 0 // using index check doesn't work w/ my smart distance sliding changes
+            prevCtrl.classList.add(disabledClass);
+        }
+
+        if (nextCtrl && moreNext) {
+            nextCtrl.classList.add(disabledClass);
+        }
     }
 
     /**
@@ -261,9 +402,7 @@ export function lory (slider, opts) {
             classNameSlideContainer,
             classNamePrevCtrl,
             classNameNextCtrl,
-            classNameDisabledNextCtrl = 'disabled',
-            classNameDisabledPrevCtrl = 'disabled',
-            enableMouseEvents,
+            //enableMouseEvents,
             classNameActiveSlide,
             initialIndex
         } = options;
@@ -276,22 +415,15 @@ export function lory (slider, opts) {
 
         position = {
             x: slideContainer.offsetLeft,
-            y: slideContainer.offsetTop
+            //y: slideContainer.offsetTop // unused
         };
 
         if (options.infinite) {
             slides = setupInfinite(slice.call(slideContainer.children));
         } else {
             slides = slice.call(slideContainer.children);
-
-            if (prevCtrl && !options.rewindPrev) {
-                prevCtrl.classList.add(classNameDisabledPrevCtrl);
-            }
-
-            if (nextCtrl && (slides.length === 1) && !options.rewind) {
-                nextCtrl.classList.add(classNameDisabledNextCtrl);
-            }
         }
+        slideContainer.addEventListener(prefixes.transitionEnd, onTransitionEnd);
 
         reset();
 
@@ -306,10 +438,12 @@ export function lory (slider, opts) {
 
         frame.addEventListener('touchstart', onTouchstart, touchEventParams);
 
+        /*
         if (enableMouseEvents) {
             frame.addEventListener('mousedown', onTouchstart);
             frame.addEventListener('click', onClick);
         }
+        */
 
         options.window.addEventListener('resize', onResize);
 
@@ -321,15 +455,24 @@ export function lory (slider, opts) {
      * reset function: called on resize
      */
     function reset () {
-        var {infinite, ease, rewindSpeed, rewindOnResize, classNameActiveSlide, initialIndex} = options;
+        let {infinite, ease, rewindSpeed, rewindOnResize, classNameActiveSlide, initialIndex} = options;
 
         slidesWidth = elementWidth(slideContainer);
         frameWidth = elementWidth(frame);
 
+        slideWidths = slides.map(slide => elementWidth(slide));
+
         if (frameWidth === slidesWidth) {
-            slidesWidth = slides.reduce(function (previousValue, slide) {
-                return previousValue + elementWidth(slide);
-            }, 0);
+            slidesWidth = slideWidths.reduce((val, slide_width) => val + slide_width, 0);
+        }
+
+        let sameWidthSlides = slideWidths.reduce((val, slide_width) => val && slide_width === slideWidths[0], true);
+
+        if (sameWidthSlides) {
+            let fit = frameWidth / slideWidths[0];
+            slidesFitInFrame = (Math.floor(fit) === fit);
+        } else {
+            slidesFitInFrame = false;
         }
 
         if (rewindOnResize) {
@@ -339,7 +482,21 @@ export function lory (slider, opts) {
             rewindSpeed = 0;
         }
 
-        if (infinite) {
+        let max_offset = getMaxOffset();
+
+        if (max_offset < 0) {
+            // all the slides fit in view 
+            // so make sure they are centered
+
+            let center_translate = Math.abs(max_offset / 2),
+                current_left = slideContainer.getBoundingClientRect().left;
+
+            if (Math.abs(current_left - center_translate) > 1) {
+                // adjust to center the slides
+                translate(center_translate, 0, null);
+            }
+
+        } else if (infinite) {
             translate(slides[index + infinite].offsetLeft * -1, 0, null);
 
             index = index + infinite;
@@ -352,6 +509,8 @@ export function lory (slider, opts) {
         if (classNameActiveSlide) {
             setActiveElement(slice.call(slides), index);
         }
+
+        updateCtrls(index);
     }
 
     /**
@@ -394,14 +553,17 @@ export function lory (slider, opts) {
         dispatchSliderEvent('before', 'destroy');
 
         // remove event listeners
-        frame.removeEventListener(prefixes.transitionEnd, onTransitionEnd);
+        slideContainer.removeEventListener(prefixes.transitionEnd, onTransitionEnd);
+
         frame.removeEventListener('touchstart', onTouchstart, touchEventParams);
         frame.removeEventListener('touchmove', onTouchmove, touchEventParams);
         frame.removeEventListener('touchend', onTouchend);
+        /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mousedown', onTouchstart);
         frame.removeEventListener('mouseup', onTouchend);
         frame.removeEventListener('mouseleave', onTouchend);
+        */
         frame.removeEventListener('click', onClick);
 
         options.window.removeEventListener('resize', onResize);
@@ -440,14 +602,16 @@ export function lory (slider, opts) {
     }
 
     function onTouchstart (event) {
-        const {enableMouseEvents} = options;
+        //const {enableMouseEvents} = options;
         const touches = event.touches ? event.touches[0] : event;
 
+        /*
         if (enableMouseEvents) {
             frame.addEventListener('mousemove', onTouchmove);
             frame.addEventListener('mouseup', onTouchend);
             frame.addEventListener('mouseleave', onTouchend);
         }
+        */
 
         frame.addEventListener('touchmove', onTouchmove, touchEventParams);
         frame.addEventListener('touchend', onTouchend);
@@ -523,10 +687,14 @@ export function lory (slider, opts) {
          *
          * @isOutOfBounds {Boolean}
          */
+        /*
         const isOutOfBounds = !index && delta.x > 0 ||
             index === slides.length - 1 && delta.x < 0;
+        */
 
         const direction = delta.x < 0;
+
+        const isOutOfBounds = direction ? moreNext : morePrev;
 
         if (!isScrolling) {
             if (isValid && !isOutOfBounds) {
@@ -543,9 +711,11 @@ export function lory (slider, opts) {
          */
         frame.removeEventListener('touchmove', onTouchmove);
         frame.removeEventListener('touchend', onTouchend);
+        /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mouseup', onTouchend);
         frame.removeEventListener('mouseleave', onTouchend);
+        */
 
         dispatchSliderEvent('on', 'touchend', {
             event

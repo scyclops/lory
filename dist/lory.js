@@ -84,7 +84,10 @@ Object.defineProperty(exports, "__esModule", {
     value: true
 });
 
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; /* globals jQuery */
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; /* eslint-disable */
+/* globals jQuery */
+
+// XXX: could also remove all rewind code & slides to scroll code if it's never used..
 
 exports.lory = lory;
 
@@ -113,6 +116,8 @@ function lory(slider, opts) {
     var slidesWidth = void 0;
     var frameWidth = void 0;
     var slides = void 0;
+    var slidesFitInFrame = void 0;
+    var slideWidths = void 0;
 
     /**
      * slider DOM elements
@@ -121,8 +126,12 @@ function lory(slider, opts) {
     var slideContainer = void 0;
     var prevCtrl = void 0;
     var nextCtrl = void 0;
+
     var prefixes = void 0;
     var transitionEndCallback = void 0;
+    var disabledClass = 'disabled';
+    var morePrev = void 0;
+    var moreNext = void 0;
 
     var index = 0;
     var options = {};
@@ -180,8 +189,6 @@ function lory(slider, opts) {
             slideContainer.insertBefore(cloned, slideContainer.firstChild);
         });
 
-        slideContainer.addEventListener(prefixes.transitionEnd, onTransitionEnd);
-
         return slice.call(slideContainer.children);
     }
 
@@ -210,11 +217,85 @@ function lory(slider, opts) {
         }
     }
 
+    function margin_size(margin) {
+        // only works on pixel (px) values
+        return (/px$/.test(margin) ? parseFloat(margin) : 0
+        );
+    }
+
     /**
-     * returns an element's width
+     * returns an element's width (including margins)
      */
     function elementWidth(element) {
-        return element.getBoundingClientRect().width || element.offsetWidth;
+        var width = element.getBoundingClientRect().width || element.offsetWidth,
+            style = getComputedStyle(element);
+
+        return width + margin_size(style.marginLeft) + margin_size(style.marginRight);
+    }
+
+    function getMaxOffset() {
+        return Math.round(slidesWidth - frameWidth);
+    }
+
+    function getCustomDistance(direction) {
+        // intelligently slide to show whatever is slightly obscured + other slides in that direction
+        // w/ a margin to prevent the prev/next controls from getting in the way too much
+        //
+        // assumes nav-links not shown (b/c it doesn't set the index properly but probably fixable)
+        // and untested w/ infinite or rewind options
+
+        var distance = 0,
+            ctrl_margin = 60,
+            obscured_width = 0;
+
+        // have to take into account if a previous transition is still in progress
+        var transitionRemaining = Math.abs(position.x) - Math.abs(slideContainer.getBoundingClientRect().left);
+
+        if (!direction) {
+            // previous
+            var leftmost_obscured = void 0,
+                reversedSlides = slides.slice(); // shallow copy
+
+            reversedSlides.reverse();
+
+            reversedSlides.forEach(function (slide) {
+                if (!leftmost_obscured) {
+                    var r = slide.getBoundingClientRect();
+
+                    if (r.left - transitionRemaining < 0) {
+                        leftmost_obscured = slide;
+                        distance = frameWidth - (r.right - transitionRemaining);
+                        obscured_width = r.width;
+                    }
+                }
+            });
+        } else {
+            var rightmost_obscured = void 0;
+
+            slides.forEach(function (slide) {
+                if (!rightmost_obscured) {
+                    var r = slide.getBoundingClientRect();
+
+                    if (r.right - transitionRemaining > frameWidth) {
+                        rightmost_obscured = slide;
+                        distance = r.left - transitionRemaining;
+                        obscured_width = r.width;
+                    }
+                }
+            });
+        }
+        if (distance !== 0) {
+            if (frameWidth - obscured_width <= ctrl_margin) {
+                // almost as wide as the frame so moving the full ctrl_margin wouldn't work
+                // instead, just center the obscured slide
+                distance -= (frameWidth - obscured_width) / 2;
+            } else {
+                // extra margin so that prev/next controls don't obsure too much
+                // (should probably have this be a options setting)
+                distance -= ctrl_margin;
+            }
+        }
+        return Math.round(distance);
     }
 
     /**
@@ -234,34 +315,24 @@ function lory(slider, opts) {
             rewindPrev = _options3.rewindPrev,
             rewindSpeed = _options3.rewindSpeed,
             ease = _options3.ease,
-            classNameActiveSlide = _options3.classNameActiveSlide,
-            _options3$classNameDi = _options3.classNameDisabledNextCtrl,
-            classNameDisabledNextCtrl = _options3$classNameDi === undefined ? 'disabled' : _options3$classNameDi,
-            _options3$classNameDi2 = _options3.classNameDisabledPrevCtrl,
-            classNameDisabledPrevCtrl = _options3$classNameDi2 === undefined ? 'disabled' : _options3$classNameDi2;
+            classNameActiveSlide = _options3.classNameActiveSlide;
 
 
         var duration = slideSpeed;
 
         var nextSlide = direction ? index + 1 : index - 1;
-        var maxOffset = Math.round(slidesWidth - frameWidth);
+        var maxOffset = getMaxOffset();
 
-        dispatchSliderEvent('before', 'slide', {
-            index: index,
-            nextSlide: nextSlide
-        });
-
-        /**
-         * Reset control classes
-         */
-        if (prevCtrl) {
-            prevCtrl.classList.remove(classNameDisabledPrevCtrl);
-        }
-        if (nextCtrl) {
-            nextCtrl.classList.remove(classNameDisabledNextCtrl);
+        if (maxOffset <= 0) {
+            // no sliding should be done b/c the slides are fully visible
+            return;
         }
 
-        if (typeof nextIndex !== 'number') {
+        // nextIndex is false for prev() and next()
+
+        var toIndex = typeof nextIndex === 'number';
+
+        if (!toIndex) {
             if (direction) {
                 if (infinite && index + infinite * 2 !== slides.length) {
                     nextIndex = index + (infinite - index % infinite);
@@ -288,13 +359,40 @@ function lory(slider, opts) {
             duration = rewindSpeed;
         }
 
-        var nextOffset = Math.min(Math.max(slides[nextIndex].offsetLeft * -1, maxOffset * -1), 0);
+        var customNextOffset = void 0;
+
+        if (toIndex) {
+            // use the default calculation
+            customNextOffset = slides[nextIndex].offsetLeft * -1;
+        } else {
+            var distance = void 0;
+
+            if (slidesFitInFrame || infinite || rewind) {
+                // getCustomDistance untested w/ infinite or rewind
+                distance = frameWidth;
+            } else {
+                distance = getCustomDistance(direction);
+            }
+
+            if (direction) {
+                // next
+                distance *= -1;
+            }
+            customNextOffset = position.x + distance;
+        }
+
+        var nextOffset = Math.min(Math.max(customNextOffset, maxOffset * -1), 0);
 
         if (rewind && Math.abs(position.x) === maxOffset && direction) {
             nextOffset = 0;
             nextIndex = 0;
             duration = rewindSpeed;
         }
+
+        dispatchSliderEvent('before', 'slide', {
+            index: index,
+            nextSlide: nextSlide
+        });
 
         /**
          * translate to the nextOffset by a defined duration and ease function
@@ -325,6 +423,7 @@ function lory(slider, opts) {
 
             position.x = slides[index].offsetLeft * -1;
 
+            // this immediately goes to a slide w/o any animation
             transitionEndCallback = function transitionEndCallback() {
                 translate(slides[index].offsetLeft * -1, 0, undefined);
             };
@@ -334,21 +433,56 @@ function lory(slider, opts) {
             setActiveElement(slice.call(slides), index);
         }
 
-        /**
-         * update classes for next and prev arrows
-         * based on user settings
-         */
-        if (prevCtrl && !infinite && !rewindPrev && nextIndex === 0) {
-            prevCtrl.classList.add(classNameDisabledPrevCtrl);
-        }
-
-        if (nextCtrl && !infinite && !rewind && nextIndex + 1 === slides.length) {
-            nextCtrl.classList.add(classNameDisabledNextCtrl);
-        }
+        updateCtrls(nextIndex, nextOffset);
 
         dispatchSliderEvent('after', 'slide', {
             currentSlide: index
         });
+    }
+
+    function updateCtrls(index, offset) {
+
+        if (options.infinite) {
+            // never need to disable the controls
+            return;
+        }
+
+        var _options4 = options,
+            rewind = _options4.rewind,
+            rewindPrev = _options4.rewindPrev;
+
+
+        var max_offset = getMaxOffset(),
+            actual_offset = Math.round(offset || 0);
+
+        // untested w/ rewind or rewindPrev..
+        morePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
+        moreNext = !rewind && (index === slides.length - 1 || max_offset <= -1 * actual_offset || // at or over the max offset so the last slide is fully visible
+        max_offset <= 0 // all the slides are visible so no reason to have a next control
+        );
+
+        /**
+         * Reset control classes
+         */
+        if (prevCtrl) {
+            prevCtrl.classList.remove(disabledClass);
+        }
+        if (nextCtrl) {
+            nextCtrl.classList.remove(disabledClass);
+        }
+
+        /**
+         * update classes for next and prev arrows
+         * based on user settings
+         */
+        if (prevCtrl && morePrev) {
+            // index === 0 // using index check doesn't work w/ my smart distance sliding changes
+            prevCtrl.classList.add(disabledClass);
+        }
+
+        if (nextCtrl && moreNext) {
+            nextCtrl.classList.add(disabledClass);
+        }
     }
 
     /**
@@ -361,18 +495,13 @@ function lory(slider, opts) {
         prefixes = (0, _detectPrefixes2.default)();
         options = _extends({}, _defaults2.default, opts);
 
-        var _options4 = options,
-            classNameFrame = _options4.classNameFrame,
-            classNameSlideContainer = _options4.classNameSlideContainer,
-            classNamePrevCtrl = _options4.classNamePrevCtrl,
-            classNameNextCtrl = _options4.classNameNextCtrl,
-            _options4$classNameDi = _options4.classNameDisabledNextCtrl,
-            classNameDisabledNextCtrl = _options4$classNameDi === undefined ? 'disabled' : _options4$classNameDi,
-            _options4$classNameDi2 = _options4.classNameDisabledPrevCtrl,
-            classNameDisabledPrevCtrl = _options4$classNameDi2 === undefined ? 'disabled' : _options4$classNameDi2,
-            enableMouseEvents = _options4.enableMouseEvents,
-            classNameActiveSlide = _options4.classNameActiveSlide,
-            initialIndex = _options4.initialIndex;
+        var _options5 = options,
+            classNameFrame = _options5.classNameFrame,
+            classNameSlideContainer = _options5.classNameSlideContainer,
+            classNamePrevCtrl = _options5.classNamePrevCtrl,
+            classNameNextCtrl = _options5.classNameNextCtrl,
+            classNameActiveSlide = _options5.classNameActiveSlide,
+            initialIndex = _options5.initialIndex;
 
 
         index = initialIndex;
@@ -382,23 +511,15 @@ function lory(slider, opts) {
         nextCtrl = slider.getElementsByClassName(classNameNextCtrl)[0];
 
         position = {
-            x: slideContainer.offsetLeft,
-            y: slideContainer.offsetTop
+            x: slideContainer.offsetLeft
         };
 
         if (options.infinite) {
             slides = setupInfinite(slice.call(slideContainer.children));
         } else {
             slides = slice.call(slideContainer.children);
-
-            if (prevCtrl && !options.rewindPrev) {
-                prevCtrl.classList.add(classNameDisabledPrevCtrl);
-            }
-
-            if (nextCtrl && slides.length === 1 && !options.rewind) {
-                nextCtrl.classList.add(classNameDisabledNextCtrl);
-            }
         }
+        slideContainer.addEventListener(prefixes.transitionEnd, onTransitionEnd);
 
         reset();
 
@@ -413,10 +534,12 @@ function lory(slider, opts) {
 
         frame.addEventListener('touchstart', onTouchstart, touchEventParams);
 
+        /*
         if (enableMouseEvents) {
             frame.addEventListener('mousedown', onTouchstart);
             frame.addEventListener('click', onClick);
         }
+        */
 
         options.window.addEventListener('resize', onResize);
 
@@ -428,22 +551,37 @@ function lory(slider, opts) {
      * reset function: called on resize
      */
     function reset() {
-        var _options5 = options,
-            infinite = _options5.infinite,
-            ease = _options5.ease,
-            rewindSpeed = _options5.rewindSpeed,
-            rewindOnResize = _options5.rewindOnResize,
-            classNameActiveSlide = _options5.classNameActiveSlide,
-            initialIndex = _options5.initialIndex;
+        var _options6 = options,
+            infinite = _options6.infinite,
+            ease = _options6.ease,
+            rewindSpeed = _options6.rewindSpeed,
+            rewindOnResize = _options6.rewindOnResize,
+            classNameActiveSlide = _options6.classNameActiveSlide,
+            initialIndex = _options6.initialIndex;
 
 
         slidesWidth = elementWidth(slideContainer);
         frameWidth = elementWidth(frame);
 
+        slideWidths = slides.map(function (slide) {
+            return elementWidth(slide);
+        });
+
         if (frameWidth === slidesWidth) {
-            slidesWidth = slides.reduce(function (previousValue, slide) {
-                return previousValue + elementWidth(slide);
+            slidesWidth = slideWidths.reduce(function (val, slide_width) {
+                return val + slide_width;
             }, 0);
+        }
+
+        var sameWidthSlides = slideWidths.reduce(function (val, slide_width) {
+            return val && slide_width === slideWidths[0];
+        }, true);
+
+        if (sameWidthSlides) {
+            var fit = frameWidth / slideWidths[0];
+            slidesFitInFrame = Math.floor(fit) === fit;
+        } else {
+            slidesFitInFrame = false;
         }
 
         if (rewindOnResize) {
@@ -453,7 +591,20 @@ function lory(slider, opts) {
             rewindSpeed = 0;
         }
 
-        if (infinite) {
+        var max_offset = getMaxOffset();
+
+        if (max_offset < 0) {
+            // all the slides fit in view 
+            // so make sure they are centered
+
+            var center_translate = Math.abs(max_offset / 2),
+                current_left = slideContainer.getBoundingClientRect().left;
+
+            if (Math.abs(current_left - center_translate) > 1) {
+                // adjust to center the slides
+                translate(center_translate, 0, null);
+            }
+        } else if (infinite) {
             translate(slides[index + infinite].offsetLeft * -1, 0, null);
 
             index = index + infinite;
@@ -466,6 +617,8 @@ function lory(slider, opts) {
         if (classNameActiveSlide) {
             setActiveElement(slice.call(slides), index);
         }
+
+        updateCtrls(index);
     }
 
     /**
@@ -508,14 +661,17 @@ function lory(slider, opts) {
         dispatchSliderEvent('before', 'destroy');
 
         // remove event listeners
-        frame.removeEventListener(prefixes.transitionEnd, onTransitionEnd);
+        slideContainer.removeEventListener(prefixes.transitionEnd, onTransitionEnd);
+
         frame.removeEventListener('touchstart', onTouchstart, touchEventParams);
         frame.removeEventListener('touchmove', onTouchmove, touchEventParams);
         frame.removeEventListener('touchend', onTouchend);
+        /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mousedown', onTouchstart);
         frame.removeEventListener('mouseup', onTouchend);
         frame.removeEventListener('mouseleave', onTouchend);
+        */
         frame.removeEventListener('click', onClick);
 
         options.window.removeEventListener('resize', onResize);
@@ -554,16 +710,16 @@ function lory(slider, opts) {
     }
 
     function onTouchstart(event) {
-        var _options6 = options,
-            enableMouseEvents = _options6.enableMouseEvents;
-
+        //const {enableMouseEvents} = options;
         var touches = event.touches ? event.touches[0] : event;
 
+        /*
         if (enableMouseEvents) {
             frame.addEventListener('mousemove', onTouchmove);
             frame.addEventListener('mouseup', onTouchend);
             frame.addEventListener('mouseleave', onTouchend);
         }
+        */
 
         frame.addEventListener('touchmove', onTouchmove, touchEventParams);
         frame.addEventListener('touchend', onTouchend);
@@ -641,9 +797,14 @@ function lory(slider, opts) {
          *
          * @isOutOfBounds {Boolean}
          */
-        var isOutOfBounds = !index && delta.x > 0 || index === slides.length - 1 && delta.x < 0;
+        /*
+        const isOutOfBounds = !index && delta.x > 0 ||
+            index === slides.length - 1 && delta.x < 0;
+        */
 
         var direction = delta.x < 0;
+
+        var isOutOfBounds = direction ? moreNext : morePrev;
 
         if (!isScrolling) {
             if (isValid && !isOutOfBounds) {
@@ -660,9 +821,11 @@ function lory(slider, opts) {
          */
         frame.removeEventListener('touchmove', onTouchmove);
         frame.removeEventListener('touchend', onTouchend);
+        /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mouseup', onTouchend);
         frame.removeEventListener('mouseleave', onTouchend);
+        */
 
         dispatchSliderEvent('on', 'touchend', {
             event: event
@@ -715,42 +878,38 @@ exports.default = detectPrefixes;
  * Detecting prefixes for saving time and bytes
  */
 function detectPrefixes() {
-    var transform = void 0;
-    var transition = void 0;
-    var transitionEnd = void 0;
+    var transform = 'transform';
+    var transition = 'transition';
+    var transitionEnd = 'transitionend';
 
+    /*
     (function () {
-        var el = document.createElement('_');
-        var style = el.style;
-
-        var prop = void 0;
-
-        if (style[prop = 'webkitTransition'] === '') {
+        let el = document.createElement('_');
+        let style = el.style;
+         let prop;
+         if (style[prop = 'webkitTransition'] === '') {
             transitionEnd = 'webkitTransitionEnd';
             transition = prop;
         }
-
-        if (style[prop = 'transition'] === '') {
+         if (style[prop = 'transition'] === '') {
             transitionEnd = 'transitionend';
             transition = prop;
         }
-
-        if (style[prop = 'webkitTransform'] === '') {
+         if (style[prop = 'webkitTransform'] === '') {
             transform = prop;
         }
-
-        if (style[prop = 'msTransform'] === '') {
+         if (style[prop = 'msTransform'] === '') {
             transform = prop;
         }
-
-        if (style[prop = 'transform'] === '') {
+         if (style[prop = 'transform'] === '') {
             transform = prop;
         }
-
-        document.body.insertBefore(el, null);
+         document.body.insertBefore(el, null);
         style[transform] = 'translateX(0)';
         document.body.removeChild(el);
-    })();
+        
+    }());
+    */
 
     return {
         transform: transform,
@@ -770,6 +929,8 @@ Object.defineProperty(exports, "__esModule", {
     value: true
 });
 exports.default = detectSupportsPassive;
+/* eslint-disable */
+
 function detectSupportsPassive() {
     var supportsPassive = false;
 
@@ -954,6 +1115,12 @@ exports.default = {
   rewind: false,
 
   /**
+   * if slider is on the first slide, with prev click the slider goes to the last slide.
+   * (do not combine with infinite)
+   */
+  rewindPrev: false,
+
+  /**
    * number of visible slides or false
    * use infinite or rewind, not both
    * @infinite {number}
@@ -1001,7 +1168,7 @@ exports.default = {
    * enables mouse events for swiping on desktop devices
    * @enableMouseEvents {boolean}
    */
-  enableMouseEvents: false,
+  //enableMouseEvents: false, // unused
 
   /**
    * window instance

@@ -1,3 +1,5 @@
+/* eslint-disable */
+
 export default function detectSupportsPassive () {
     let supportsPassive = false;
 
