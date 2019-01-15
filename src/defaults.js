@@ -103,5 +103,12 @@ export default {
      * If false, slides lory to the first slide on window resize.
      * @rewindOnResize {boolean}
      */
-    rewindOnResize: true
+    rewindOnResize: true,
+
+    // whether touch alone controls the slider positioning
+    touchControl: false,
+
+    // whether to center slides if they take up less than the frame width
+    center: true,
+
 };

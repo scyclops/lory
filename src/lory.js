@@ -31,6 +31,7 @@ export function lory (slider, opts) {
     let disabledClass = 'disabled';
     let morePrev;
     let moreNext;
+    let touchControl;
 
     let index   = 0;
     let options = {};
@@ -202,6 +203,10 @@ export function lory (slider, opts) {
      * @direction  {boolean}
      */
     function slide (nextIndex, direction) {
+
+        if (touchControl) {
+            return;
+        }
 
         const {
             slideSpeed,
@@ -407,6 +412,8 @@ export function lory (slider, opts) {
             initialIndex
         } = options;
 
+        touchControl = options.touchControl;
+
         index = initialIndex;
         frame = slider.getElementsByClassName(classNameFrame)[0];
         slideContainer = frame.getElementsByClassName(classNameSlideContainer)[0];
@@ -484,7 +491,7 @@ export function lory (slider, opts) {
 
         let max_offset = getMaxOffset();
 
-        if (max_offset < 0) {
+        if (max_offset < 0 && options.center) {
             // all the slides fit in view 
             // so make sure they are centered
 
@@ -697,7 +704,28 @@ export function lory (slider, opts) {
         const isOutOfBounds = direction ? moreNext : morePrev;
 
         if (!isScrolling) {
-            if (isValid && !isOutOfBounds) {
+            if (touchControl) {
+
+                let nextOffset = position.x + delta.x,
+                    maxOffset = getMaxOffset();
+
+                if (nextOffset > 0) {
+                    // out of bounds on left
+                    position.x = 0;
+                    translate(position.x, options.snapBackSpeed);
+                } else if ((-1 * nextOffset) > maxOffset) {
+                    // out of bounds on right
+                    if (maxOffset < 0 && !options.center) {
+                        // snap back to left alignment
+                        maxOffset = 0;
+                    }
+                    position.x = -1 * maxOffset;
+                    translate(position.x, options.snapBackSpeed);
+                } else {
+                    position.x = nextOffset;
+                }
+
+            } else if (!touchControl && isValid && !isOutOfBounds) {
                 slide(false, direction);
             } else {
                 translate(position.x, options.snapBackSpeed);

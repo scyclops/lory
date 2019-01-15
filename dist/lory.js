@@ -132,6 +132,7 @@ function lory(slider, opts) {
     var disabledClass = 'disabled';
     var morePrev = void 0;
     var moreNext = void 0;
+    var touchControl = void 0;
 
     var index = 0;
     var options = {};
@@ -307,6 +308,11 @@ function lory(slider, opts) {
      * @direction  {boolean}
      */
     function slide(nextIndex, direction) {
+
+        if (touchControl) {
+            return;
+        }
+
         var _options3 = options,
             slideSpeed = _options3.slideSpeed,
             slidesToScroll = _options3.slidesToScroll,
@@ -504,6 +510,8 @@ function lory(slider, opts) {
             initialIndex = _options5.initialIndex;
 
 
+        touchControl = options.touchControl;
+
         index = initialIndex;
         frame = slider.getElementsByClassName(classNameFrame)[0];
         slideContainer = frame.getElementsByClassName(classNameSlideContainer)[0];
@@ -593,7 +601,7 @@ function lory(slider, opts) {
 
         var max_offset = getMaxOffset();
 
-        if (max_offset < 0) {
+        if (max_offset < 0 && options.center) {
             // all the slides fit in view 
             // so make sure they are centered
 
@@ -807,7 +815,27 @@ function lory(slider, opts) {
         var isOutOfBounds = direction ? moreNext : morePrev;
 
         if (!isScrolling) {
-            if (isValid && !isOutOfBounds) {
+            if (touchControl) {
+
+                var nextOffset = position.x + delta.x,
+                    maxOffset = getMaxOffset();
+
+                if (nextOffset > 0) {
+                    // out of bounds on left
+                    position.x = 0;
+                    translate(position.x, options.snapBackSpeed);
+                } else if (-1 * nextOffset > maxOffset) {
+                    // out of bounds on right
+                    if (maxOffset < 0 && !options.center) {
+                        // snap back to left alignment
+                        maxOffset = 0;
+                    }
+                    position.x = -1 * maxOffset;
+                    translate(position.x, options.snapBackSpeed);
+                } else {
+                    position.x = nextOffset;
+                }
+            } else if (!touchControl && isValid && !isOutOfBounds) {
                 slide(false, direction);
             } else {
                 translate(position.x, options.snapBackSpeed);
@@ -1180,7 +1208,14 @@ exports.default = {
    * If false, slides lory to the first slide on window resize.
    * @rewindOnResize {boolean}
    */
-  rewindOnResize: true
+  rewindOnResize: true,
+
+  // whether touch alone controls the slider positioning
+  touchControl: false,
+
+  // whether to center slides if they take up less than the frame width
+  center: true
+
 };
 
 /***/ }),
