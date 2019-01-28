@@ -29,8 +29,8 @@ export function lory (slider, opts) {
     let prefixes;
     let transitionEndCallback;
     let disabledClass = 'disabled';
-    let morePrev;
-    let moreNext;
+    let noMorePrev;
+    let noMoreNext;
     let touchControl;
 
     let index   = 0;
@@ -362,33 +362,29 @@ export function lory (slider, opts) {
             actual_offset = Math.round(offset || 0);
 
         // untested w/ rewind or rewindPrev..
-        morePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
-        moreNext = (!rewind && (
+        noMorePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
+        noMoreNext = (!rewind && (
             (index === slides.length - 1) ||
             (max_offset <= -1 * actual_offset) || // at or over the max offset so the last slide is fully visible
             (max_offset <= 0) // all the slides are visible so no reason to have a next control
         ));
 
         /**
-         * Reset control classes
+         * Update control classes
          */
         if (prevCtrl) {
-            prevCtrl.classList.remove(disabledClass);
+            if (noMorePrev) {
+                prevCtrl.classList.add(disabledClass);
+            } else {
+                prevCtrl.classList.remove(disabledClass);
+            }
         }
         if (nextCtrl) {
-            nextCtrl.classList.remove(disabledClass);
-        }
-
-        /**
-         * update classes for next and prev arrows
-         * based on user settings
-         */
-        if (prevCtrl && morePrev) { // index === 0 // using index check doesn't work w/ my smart distance sliding changes
-            prevCtrl.classList.add(disabledClass);
-        }
-
-        if (nextCtrl && moreNext) {
-            nextCtrl.classList.add(disabledClass);
+            if (noMoreNext) {
+                nextCtrl.classList.add(disabledClass);
+            } else {
+                nextCtrl.classList.remove(disabledClass);
+            }
         }
     }
 
@@ -517,7 +513,7 @@ export function lory (slider, opts) {
             setActiveElement(slice.call(slides), index);
         }
 
-        updateCtrls(index);
+        updateCtrls(index, position.x);
     }
 
     /**
@@ -701,7 +697,7 @@ export function lory (slider, opts) {
 
         const direction = delta.x < 0;
 
-        const isOutOfBounds = direction ? moreNext : morePrev;
+        const isOutOfBounds = direction ? noMoreNext : noMorePrev;
 
         if (!isScrolling) {
             if (touchControl) {

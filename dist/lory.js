@@ -130,8 +130,8 @@ function lory(slider, opts) {
     var prefixes = void 0;
     var transitionEndCallback = void 0;
     var disabledClass = 'disabled';
-    var morePrev = void 0;
-    var moreNext = void 0;
+    var noMorePrev = void 0;
+    var noMoreNext = void 0;
     var touchControl = void 0;
 
     var index = 0;
@@ -462,32 +462,27 @@ function lory(slider, opts) {
             actual_offset = Math.round(offset || 0);
 
         // untested w/ rewind or rewindPrev..
-        morePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
-        moreNext = !rewind && (index === slides.length - 1 || max_offset <= -1 * actual_offset || // at or over the max offset so the last slide is fully visible
+        noMorePrev = !rewindPrev && (actual_offset === 0 || max_offset <= 0);
+        noMoreNext = !rewind && (index === slides.length - 1 || max_offset <= -1 * actual_offset || // at or over the max offset so the last slide is fully visible
         max_offset <= 0 // all the slides are visible so no reason to have a next control
         );
 
         /**
-         * Reset control classes
+         * Update control classes
          */
         if (prevCtrl) {
-            prevCtrl.classList.remove(disabledClass);
+            if (noMorePrev) {
+                prevCtrl.classList.add(disabledClass);
+            } else {
+                prevCtrl.classList.remove(disabledClass);
+            }
         }
         if (nextCtrl) {
-            nextCtrl.classList.remove(disabledClass);
-        }
-
-        /**
-         * update classes for next and prev arrows
-         * based on user settings
-         */
-        if (prevCtrl && morePrev) {
-            // index === 0 // using index check doesn't work w/ my smart distance sliding changes
-            prevCtrl.classList.add(disabledClass);
-        }
-
-        if (nextCtrl && moreNext) {
-            nextCtrl.classList.add(disabledClass);
+            if (noMoreNext) {
+                nextCtrl.classList.add(disabledClass);
+            } else {
+                nextCtrl.classList.remove(disabledClass);
+            }
         }
     }
 
@@ -626,7 +621,7 @@ function lory(slider, opts) {
             setActiveElement(slice.call(slides), index);
         }
 
-        updateCtrls(index);
+        updateCtrls(index, position.x);
     }
 
     /**
@@ -812,7 +807,7 @@ function lory(slider, opts) {
 
         var direction = delta.x < 0;
 
-        var isOutOfBounds = direction ? moreNext : morePrev;
+        var isOutOfBounds = direction ? noMoreNext : noMorePrev;
 
         if (!isScrolling) {
             if (touchControl) {
