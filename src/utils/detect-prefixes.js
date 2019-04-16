@@ -6,7 +6,6 @@ export default function detectPrefixes () {
     let transition = 'transition';
     let transitionEnd = 'transitionend';
 
-    /*
     (function () {
         let el = document.createElement('_');
         let style = el.style;
@@ -38,9 +37,7 @@ export default function detectPrefixes () {
         document.body.insertBefore(el, null);
         style[transform] = 'translateX(0)';
         document.body.removeChild(el);
-        
     }());
-    */
 
     return {
         transform,
