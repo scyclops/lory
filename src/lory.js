@@ -671,7 +671,7 @@ export function lory (slider, opts) {
         /**
          * is valid if:
          *
-         * -> swipe attempt time is over 300 ms
+         * -> swipe attempt time is under 300 ms
          * and
          * -> swipe distance is greater than 25px
          * or
@@ -679,9 +679,7 @@ export function lory (slider, opts) {
          *
          * @isValidSlide {Boolean}
          */
-        const isValid = Number(duration) < 300 &&
-            Math.abs(delta.x) > 25 ||
-            Math.abs(delta.x) > frameWidth / 3;
+        const isValid = Number(duration) < 300 && (Math.abs(delta.x) > 25 || Math.abs(delta.x) > frameWidth / 3);
 
         /**
          * is out of bounds if:
