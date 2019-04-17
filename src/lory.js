@@ -561,6 +561,7 @@ export function lory (slider, opts) {
         frame.removeEventListener('touchstart', onTouchstart, touchEventParams);
         frame.removeEventListener('touchmove', onTouchmove, touchEventParams);
         frame.removeEventListener('touchend', onTouchend);
+        frame.removeEventListener('touchcancel', onTouchend);
         /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mousedown', onTouchstart);
@@ -618,6 +619,7 @@ export function lory (slider, opts) {
 
         frame.addEventListener('touchmove', onTouchmove, touchEventParams);
         frame.addEventListener('touchend', onTouchend);
+        frame.addEventListener('touchcancel', onTouchend);
 
         const {pageX, pageY} = touches;
 
@@ -735,6 +737,7 @@ export function lory (slider, opts) {
          */
         frame.removeEventListener('touchmove', onTouchmove);
         frame.removeEventListener('touchend', onTouchend);
+        frame.removeEventListener('touchcancel', onTouchend);
         /*
         frame.removeEventListener('mousemove', onTouchmove);
         frame.removeEventListener('mouseup', onTouchend);
